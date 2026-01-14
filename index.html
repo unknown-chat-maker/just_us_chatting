@@ -1,0 +1,294 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Vault</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <style>
+        :root {
+            --purple-black: linear-gradient(160deg, #6a11cb 0%, #000000 100%);
+            --gray-black: linear-gradient(160deg, #333333 0%, #000000 100%);
+            --accent: #a133f5;
+            --bg: #000000;
+        }
+
+        * { box-sizing: border-box; font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Roboto; -webkit-tap-highlight-color: transparent; }
+        body, html { margin: 0; padding: 0; height: 100%; background: var(--bg); color: white; overflow: hidden; }
+
+        /* --- Passcode & Identity --- */
+        .overlay {
+            position: fixed; inset: 0; background: black; z-index: 1000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            transition: opacity 0.5s ease;
+        }
+        #pass-input {
+            background: transparent; border: none; border-bottom: 2px solid #444;
+            color: white; font-size: 2.5rem; text-align: center; width: 200px; outline: none; letter-spacing: 8px;
+        }
+        .btn-choice {
+            width: 280px; padding: 20px; margin: 15px; border-radius: 50px; border: none;
+            background: var(--purple-black); color: white; font-size: 1.2rem; font-weight: bold;
+            cursor: pointer; animation: fadeIn 0.8s ease;
+        }
+
+        /* --- Main App --- */
+        #app { display: none; height: 100vh; flex-direction: column; background: var(--bg); }
+        
+        header {
+            padding: 15px 20px; display: flex; justify-content: space-between; align-items: center;
+            background: rgba(10,10,10,0.95); border-bottom: 0.5px solid #222;
+        }
+
+        /* --- Chat Bubbles --- */
+        #chat-flow {
+            flex: 1; overflow-y: auto; padding: 20px; display: flex; flex-direction: column; gap: 12px;
+            background: radial-gradient(circle at top, #1a0a2e 0%, #000000 100%);
+        }
+        .bubble {
+            max-width: 80%; padding: 12px 16px; border-radius: 22px; font-size: 0.95rem; line-height: 1.4;
+            animation: bubbleSlide 0.3s cubic-bezier(0.4, 0, 0.2, 1); position: relative;
+        }
+        .right { align-self: flex-end; background: var(--purple-black); border-bottom-right-radius: 4px; }
+        .left { align-self: flex-start; background: var(--gray-black); border-bottom-left-radius: 4px; color: #ccc; }
+        .bubble img { width: 100%; border-radius: 15px; margin-top: 5px; cursor: pointer; }
+
+        /* --- Animations --- */
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes bubbleSlide { from { transform: translateY(10px); opacity: 0; } to { transform: translateY(0); opacity: 1; } }
+        @keyframes dotBlink { 0%, 100% { opacity: 0.3; } 50% { opacity: 1; } }
+
+        /* --- Input Bar --- */
+        .input-bar { padding: 15px; display: flex; align-items: center; gap: 12px; background: black; border-top: 0.5px solid #222; }
+        .input-field { flex: 1; background: #1a1a1a; border-radius: 30px; padding: 10px 18px; display: flex; align-items: center; }
+        .input-field input { flex: 1; background: transparent; border: none; color: white; outline: none; }
+        .send-btn { background: none; border: none; color: #0095f6; font-weight: bold; cursor: pointer; font-size: 1rem; }
+
+        /* --- Typing Indicator --- */
+        #typing { padding: 5px 25px; font-size: 0.75rem; color: #777; display: none; }
+        .dot { display: inline-block; width: 4px; height: 4px; background: #777; border-radius: 50%; margin-left: 2px; animation: dotBlink 1s infinite; }
+
+        /* --- Media Viewer (Back Button Fixed) --- */
+        #viewer {
+            display: none; position: fixed; inset: 0; background: black; z-index: 5000;
+            justify-content: center; align-items: center;
+        }
+        #viewer img { max-width: 100%; max-height: 100%; object-fit: contain; animation: zoom 0.3s ease; }
+        @keyframes zoom { from { transform: scale(0.9); } to { transform: scale(1); } }
+
+        /* --- Export Modal --- */
+        #export-modal {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.9); z-index: 6000;
+            flex-direction: column; padding: 30px;
+        }
+        .export-item { padding: 15px; border-bottom: 0.5px solid #333; display: flex; justify-content: space-between; }
+    </style>
+</head>
+<body>
+
+    <div id="screen-lock" class="overlay">
+        <h2 style="font-weight: 300; letter-spacing: 2px;">SECURE ACCESS</h2>
+        <input type="password" id="pass-input" inputmode="numeric" maxlength="6">
+    </div>
+
+    <div id="screen-choice" class="overlay" style="display:none;">
+        <button class="btn-choice" onclick="selectUser('Hubby')">HUBBY</button>
+        <button class="btn-choice" onclick="selectUser('Wifey')">WIFEY</button>
+    </div>
+
+    <div id="app">
+        <header>
+            <div id="partner-status">
+                <b id="partner-name">Partner</b>
+            </div>
+            <button onclick="openExport()" style="background:none; border:1px solid #444; color:white; border-radius:15px; padding:5px 15px; font-size:0.7rem;">EXPORT DATA</button>
+        </header>
+
+        <div id="chat-flow"></div>
+
+        <div id="typing">
+            <span id="typing-text">Partner is typing</span><span class="dot"></span><span class="dot" style="animation-delay:0.2s"></span><span class="dot" style="animation-delay:0.4s"></span>
+        </div>
+
+        <div class="input-bar">
+            <label style="cursor:pointer; font-size:1.4rem;">
+                📷<input type="file" id="file-up" hidden accept="image/*">
+            </label>
+            <div class="input-field">
+                <input type="text" id="msg-text" placeholder="Message...">
+            </div>
+            <button class="send-btn" onclick="sendMsg()">Send</button>
+        </div>
+    </div>
+
+    <div id="viewer">
+        <img id="viewer-img">
+        <button onclick="closeViewer()" style="position:fixed; top:20px; right:20px; background:rgba(255,255,255,0.2); border:none; color:white; padding:10px; border-radius:50%;">✕</button>
+    </div>
+
+    <div id="export-modal">
+        <h3>Select Media to Export</h3>
+        <div id="export-list" style="flex:1; overflow-y:auto;"></div>
+        <button class="btn-choice" onclick="generateZip()">DOWNLOAD ZIP</button>
+        <button onclick="document.getElementById('export-modal').style.display='none'" style="background:none; border:none; color:gray; margin-top:10px;">Cancel</button>
+    </div>
+
+    <script>
+        let db;
+        let currentUser = "";
+        let passcode = "112011";
+
+        // 1. IndexedDB Initialization
+        const req = indexedDB.open("SecretApp", 1);
+        req.onupgradeneeded = (e) => e.target.result.createObjectStore("vault", { autoIncrement: true });
+        req.onsuccess = (e) => db = e.target.result;
+
+        // 2. Passcode Logic
+        document.getElementById('pass-input').addEventListener('input', (e) => {
+            if(e.target.value === passcode) {
+                document.getElementById('screen-lock').style.display = 'none';
+                document.getElementById('screen-choice').style.display = 'flex';
+            }
+        });
+
+        function selectUser(user) {
+            currentUser = user;
+            document.getElementById('partner-name').innerText = user === 'Hubby' ? 'Wifey' : 'Hubby';
+            document.getElementById('screen-choice').style.display = 'none';
+            document.getElementById('app').style.display = 'flex';
+            loadMessages();
+        }
+
+        // 3. Media Viewer & BACK BUTTON FIX
+        function openViewer(src) {
+            document.getElementById('viewer-img').src = src;
+            document.getElementById('viewer').style.display = 'flex';
+            
+            // Push a fake state to the history
+            window.history.pushState({viewingMedia: true}, "");
+        }
+
+        function closeViewer() {
+            document.getElementById('viewer').style.display = 'none';
+        }
+
+        // Listen for the Back Button
+        window.addEventListener('popstate', (event) => {
+            // If the user presses back, close the viewer
+            document.getElementById('viewer').style.display = 'none';
+            document.getElementById('export-modal').style.display = 'none';
+        });
+
+        // 4. Messaging & Media
+        function sendMsg() {
+            const input = document.getElementById('msg-text');
+            if(!input.value.trim()) return;
+            saveToVault({ type: 'text', content: input.value, user: currentUser });
+            input.value = "";
+        }
+
+        document.getElementById('file-up').addEventListener('change', (e) => {
+            const reader = new FileReader();
+            reader.onload = () => saveToVault({ type: 'media', content: reader.result, user: currentUser });
+            reader.readAsDataURL(e.target.files[0]);
+        });
+
+        function saveToVault(obj) {
+            const encrypted = CryptoJS.AES.encrypt(obj.content, passcode).toString();
+            const tx = db.transaction("vault", "readwrite");
+            tx.objectStore("vault").add({
+                type: obj.type,
+                data: encrypted,
+                sender: obj.user,
+                ts: Date.now()
+            });
+            tx.oncomplete = () => loadMessages();
+        }
+
+        function loadMessages() {
+            const flow = document.getElementById('chat-flow');
+            flow.innerHTML = "";
+            const tx = db.transaction("vault", "readonly");
+            tx.objectStore("vault").openCursor().onsuccess = (e) => {
+                const cursor = e.target.result;
+                if(cursor) {
+                    const item = cursor.value;
+                    const decrypted = CryptoJS.AES.decrypt(item.data, passcode).toString(CryptoJS.enc.Utf8);
+                    
+                    const div = document.createElement('div');
+                    // Right for current user (Purple), Left for partner (Gray)
+                    div.className = `bubble ${item.sender === currentUser ? 'right' : 'left'}`;
+                    
+                    if(item.type === 'text') {
+                        div.innerText = decrypted;
+                    } else {
+                        const img = document.createElement('img');
+                        img.src = decrypted;
+                        img.onclick = () => openViewer(decrypted);
+                        div.appendChild(img);
+                    }
+                    flow.appendChild(div);
+                    cursor.continue();
+                }
+                flow.scrollTop = flow.scrollHeight;
+            };
+        }
+
+        // 5. Typing Simulation
+        document.getElementById('msg-text').addEventListener('input', () => {
+            const typing = document.getElementById('typing');
+            document.getElementById('typing-text').innerText = (currentUser === 'Hubby' ? 'Wifey' : 'Hubby') + " is writing";
+            typing.style.display = 'block';
+            clearTimeout(window.tTimer);
+            window.tTimer = setTimeout(() => typing.style.display = 'none', 2000);
+        });
+
+        // 6. Export to ZIP
+        function openExport() {
+            const list = document.getElementById('export-list');
+            list.innerHTML = "";
+            document.getElementById('export-modal').style.display = 'flex';
+            window.history.pushState({exporting: true}, "");
+
+            const tx = db.transaction("vault", "readonly");
+            tx.objectStore("vault").openCursor().onsuccess = (e) => {
+                const cursor = e.target.result;
+                if(cursor) {
+                    if(cursor.value.type === 'media') {
+                        const row = document.createElement('div');
+                        row.className = 'export-item';
+                        row.innerHTML = `<span>Photo #${cursor.key}</span><input type="checkbox" class="ex-check" value="${cursor.key}" checked>`;
+                        list.appendChild(row);
+                    }
+                    cursor.continue();
+                }
+            };
+        }
+
+        async function generateZip() {
+            const zip = new JSZip();
+            const checks = document.querySelectorAll('.ex-check:checked');
+            const tx = db.transaction("vault", "readonly");
+            
+            for (let check of checks) {
+                const req = tx.objectStore("vault").get(Number(check.value));
+                await new Promise(res => {
+                    req.onsuccess = () => {
+                        const dec = CryptoJS.AES.decrypt(req.result.data, passcode).toString(CryptoJS.enc.Utf8);
+                        zip.file(`media_${req.result.ts}.png`, dec.split(',')[1], {base64: true});
+                        res();
+                    };
+                });
+            }
+
+            zip.generateAsync({type:"blob"}).then(blob => {
+                saveAs(blob, "Vault_Export.zip");
+                document.getElementById('export-modal').style.display = 'none';
+            });
+        }
+    </script>
+</body>
+</html>
