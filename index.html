@@ -1,0 +1,316 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Private Portal</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        :root {
+            --ig-gradient: linear-gradient(135deg, #833ab4, #fd1d1d, #fcb045);
+            --bg-black: #000000;
+            --bg-dark: #121212;
+            --accent-purple: #a133f5;
+            --bubble-sent: linear-gradient(135deg, #a133f5, #6c33f5);
+            --bubble-received: #262626;
+            --text-white: #ffffff;
+            --text-gray: #a8a8a8;
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; }
+        body, html { 
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            background: var(--bg-black); color: var(--text-white);
+            font-family: -apple-system, system-ui, "Segoe UI", Roboto, Helvetica;
+            overflow: hidden;
+        }
+
+        /* --- Passcode Screen --- */
+        #screen-lock {
+            position: fixed; inset: 0; background: var(--bg-black); z-index: 10000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+        }
+        #pass-input {
+            background: transparent; border: none; border-bottom: 2px solid #333;
+            color: white; font-size: 2.5rem; text-align: center; width: 160px;
+            outline: none; letter-spacing: 10px; transition: 0.3s;
+        }
+
+        /* --- Profile Selection --- */
+        #screen-identity {
+            display: none; position: fixed; inset: 0; background: var(--bg-black); z-index: 9000;
+            flex-direction: column; align-items: center; justify-content: center;
+            animation: fadeIn 0.5s ease;
+        }
+        .profile-btn {
+            width: 250px; padding: 18px; margin: 12px; border-radius: 40px; border: none;
+            background: var(--bubble-sent); color: white; font-size: 1.1rem; font-weight: 600;
+            cursor: pointer; transform: scale(1); transition: 0.2s;
+        }
+        .profile-btn:active { transform: scale(0.95); }
+
+        /* --- Main App Container --- */
+        #main-app {
+            display: none; height: 100vh; flex-direction: column;
+            background: linear-gradient(180deg, #1a0a2e 0%, #000000 100%);
+        }
+
+        /* --- Header --- */
+        header {
+            height: 60px; display: flex; align-items: center; justify-content: space-between;
+            padding: 0 20px; border-bottom: 0.5px solid #262626;
+        }
+        .header-user { font-weight: 700; font-size: 1.1rem; }
+
+        /* --- Chat/Vault Tabs --- */
+        .tabs { display: flex; border-bottom: 0.5px solid #262626; }
+        .tab { flex: 1; padding: 12px; text-align: center; color: var(--text-gray); font-size: 0.9rem; cursor: pointer; }
+        .tab.active { color: white; border-bottom: 2px solid white; font-weight: 600; }
+
+        /* --- Message List --- */
+        #chat-container { flex: 1; display: flex; flex-direction: column; overflow: hidden; }
+        #messages { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px; }
+        
+        .msg {
+            max-width: 75%; padding: 10px 16px; border-radius: 20px; font-size: 0.95rem; line-height: 1.4;
+            animation: slideIn 0.3s cubic-bezier(0.18, 0.89, 0.32, 1.28);
+        }
+        .sent { align-self: flex-end; background: var(--bubble-sent); border-bottom-right-radius: 4px; }
+        .received { align-self: flex-start; background: var(--bubble-received); border-bottom-left-radius: 4px; }
+        .msg img { width: 100%; border-radius: 12px; margin-top: 5px; cursor: pointer; }
+
+        /* --- Fluid Typing Animation --- */
+        #typing-indicator {
+            padding: 5px 20px; font-size: 0.75rem; color: var(--text-gray);
+            display: none; height: 20px;
+        }
+        .dots { display: inline-block; margin-left: 5px; }
+        .dots span { animation: blink 1.4s infinite both; }
+        .dots span:nth-child(2) { animation-delay: 0.2s; }
+        .dots span:nth-child(3) { animation-delay: 0.4s; }
+
+        /* --- Input Section --- */
+        .input-bar {
+            padding: 15px; display: flex; align-items: center; gap: 10px;
+            background: var(--bg-black);
+        }
+        .input-wrap {
+            flex: 1; background: #262626; border-radius: 30px; padding: 10px 15px;
+            display: flex; align-items: center;
+        }
+        .input-wrap input {
+            flex: 1; background: transparent; border: none; color: white; outline: none; padding: 4px;
+        }
+        .send-btn { background: none; border: none; color: #0095f6; font-weight: 700; cursor: pointer; }
+
+        /* --- Vault Grid --- */
+        #vault-view { display: none; flex: 1; overflow-y: auto; padding: 2px; }
+        .grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+        .grid img { width: 100%; aspect-ratio: 1; object-fit: cover; }
+
+        /* --- Media Viewer --- */
+        #viewer {
+            display: none; position: fixed; inset: 0; background: rgba(0,0,0,0.95); z-index: 11000;
+            justify-content: center; align-items: center;
+        }
+        #viewer img { max-width: 100%; max-height: 100%; animation: zoom 0.3s ease; }
+
+        /* --- Keyframes --- */
+        @keyframes fadeIn { from { opacity: 0; } to { opacity: 1; } }
+        @keyframes slideIn { from { opacity: 0; transform: translateY(15px); } to { opacity: 1; transform: translateY(0); } }
+        @keyframes blink { 0% { opacity: .2; } 20% { opacity: 1; } 100% { opacity: .2; } }
+        @keyframes zoom { from { transform: scale(0.8); } to { transform: scale(1); } }
+    </style>
+</head>
+<body>
+
+    <div id="screen-lock">
+        <h2 style="font-weight: 300; margin-bottom: 30px;">Enter Passcode</h2>
+        <input type="password" id="pass-input" inputmode="numeric" pattern="[0-9]*" maxlength="6">
+    </div>
+
+    <div id="screen-identity">
+        <h1 style="margin-bottom: 40px;">Select Profile</h1>
+        <button class="profile-btn" onclick="openApp('Hubby')">Hubby</button>
+        <button class="profile-btn" style="background:#333" onclick="openApp('Wifey')">Wifey</button>
+    </div>
+
+    <div id="main-app">
+        <header>
+            <div class="header-user" id="profile-name">Chat</div>
+            <button onclick="exportVault()" style="background:none; border:none; color:var(--text-white); font-weight:bold;">Export ZIP</button>
+        </header>
+
+        <div class="tabs">
+            <div class="tab active" id="tab-chat" onclick="showTab('chat')">Messages</div>
+            <div class="tab" id="tab-vault" onclick="showTab('vault')">Vault</div>
+        </div>
+
+        <div id="chat-container">
+            <div id="messages"></div>
+            <div id="typing-indicator">Partner is writing<span class="dots"><span>.</span><span>.</span><span>.</span></span></div>
+            
+            <div class="input-bar">
+                <label style="cursor: pointer; font-size: 1.5rem;">
+                    📷<input type="file" id="media-file" hidden accept="image/*">
+                </label>
+                <div class="input-wrap">
+                    <input type="text" id="text-in" placeholder="Message...">
+                </div>
+                <button class="send-btn" onclick="sendMsg()">Send</button>
+            </div>
+        </div>
+
+        <div id="vault-view">
+            <div class="grid" id="vault-grid"></div>
+        </div>
+    </div>
+
+    <div id="viewer" onclick="this.style.display='none'">
+        <img id="viewer-img">
+    </div>
+
+    <script>
+        let db, currentUser, passcode;
+
+        // DB Initialization
+        const request = indexedDB.open("SecureMediaDB", 1);
+        request.onupgradeneeded = (e) => {
+            let d = e.target.result;
+            d.createObjectStore("vault", { autoIncrement: true });
+        };
+        request.onsuccess = (e) => db = e.target.result;
+
+        // Passcode Entry
+        document.getElementById('pass-input').addEventListener('input', (e) => {
+            if(e.target.value === "112011") {
+                passcode = "112011";
+                document.getElementById('screen-lock').style.display = 'none';
+                document.getElementById('screen-identity').style.display = 'flex';
+            }
+        });
+
+        function openApp(user) {
+            currentUser = user;
+            document.getElementById('profile-name').innerText = user;
+            document.getElementById('screen-identity').style.display = 'none';
+            document.getElementById('main-app').style.display = 'flex';
+            refreshUI();
+        }
+
+        // Messaging Logic
+        function sendMsg() {
+            const el = document.getElementById('text-in');
+            if(!el.value) return;
+            saveItem({ type: 'text', data: el.value, user: currentUser });
+            el.value = "";
+        }
+
+        document.getElementById('media-file').addEventListener('change', (e) => {
+            const reader = new FileReader();
+            reader.onload = () => saveItem({ type: 'media', data: reader.result, user: currentUser });
+            reader.readAsDataURL(e.target.files[0]);
+        });
+
+        function saveItem(obj) {
+            const encrypted = CryptoJS.AES.encrypt(obj.data, passcode).toString();
+            const tx = db.transaction("vault", "readwrite");
+            tx.objectStore("vault").add({ 
+                type: obj.type, 
+                content: encrypted, 
+                user: obj.user, 
+                ts: Date.now() 
+            });
+            tx.oncomplete = () => refreshUI();
+        }
+
+        function refreshUI() {
+            const msgBox = document.getElementById('messages');
+            const grid = document.getElementById('vault-grid');
+            msgBox.innerHTML = ""; grid.innerHTML = "";
+
+            const tx = db.transaction("vault", "readonly");
+            tx.objectStore("vault").openCursor().onsuccess = (e) => {
+                const cursor = e.target.result;
+                if(cursor) {
+                    const item = cursor.value;
+                    const dec = CryptoJS.AES.decrypt(item.content, passcode).toString(CryptoJS.enc.Utf8);
+                    
+                    // Chat UI
+                    const div = document.createElement('div');
+                    div.className = `msg ${item.user === currentUser ? 'sent' : 'received'}`;
+                    
+                    if(item.type === 'text') {
+                        div.innerText = dec;
+                    } else {
+                        const img = document.createElement('img');
+                        img.src = dec;
+                        img.onclick = () => {
+                            document.getElementById('viewer-img').src = dec;
+                            document.getElementById('viewer').style.display = 'flex';
+                        };
+                        div.appendChild(img);
+
+                        // Vault UI
+                        const vImg = img.cloneNode();
+                        vImg.onclick = () => {
+                            document.getElementById('viewer-img').src = dec;
+                            document.getElementById('viewer').style.display = 'flex';
+                        };
+                        grid.appendChild(vImg);
+                    }
+                    msgBox.appendChild(div);
+                    cursor.continue();
+                }
+                msgBox.scrollTop = msgBox.scrollHeight;
+            };
+        }
+
+        // Tabs & Animations
+        function showTab(type) {
+            document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
+            if(type === 'chat') {
+                document.getElementById('chat-container').style.display = 'flex';
+                document.getElementById('vault-view').style.display = 'none';
+                document.getElementById('tab-chat').classList.add('active');
+            } else {
+                document.getElementById('chat-container').style.display = 'none';
+                document.getElementById('vault-view').style.display = 'block';
+                document.getElementById('tab-vault').classList.add('active');
+            }
+        }
+
+        // Fluid Writing Animation logic
+        document.getElementById('text-in').addEventListener('focus', () => {
+            // Simulated: Usually triggered via socket. In this local version, it shows the "partner" typing
+            document.getElementById('typing-indicator').style.display = 'block';
+        });
+        document.getElementById('text-in').addEventListener('blur', () => {
+            document.getElementById('typing-indicator').style.display = 'none';
+        });
+
+        // Powerful ZIP Export
+        async function exportVault() {
+            const zip = new JSZip();
+            const tx = db.transaction("vault", "readonly");
+            tx.objectStore("vault").openCursor().onsuccess = (e) => {
+                const cursor = e.target.result;
+                if(cursor) {
+                    if(cursor.value.type === 'media') {
+                        const dec = CryptoJS.AES.decrypt(cursor.value.content, passcode).toString(CryptoJS.enc.Utf8);
+                        const b64 = dec.split(',')[1];
+                        zip.file(`media_${cursor.key}.png`, b64, {base64: true});
+                    }
+                    cursor.continue();
+                } else {
+                    zip.generateAsync({type:"blob"}).then(blob => {
+                        saveAs(blob, "Private_Archive.zip");
+                    });
+                }
+            };
+        }
+    </script>
+</body>
+</html>
