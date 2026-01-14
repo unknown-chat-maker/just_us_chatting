@@ -1,0 +1,174 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Private DM</title>
+
+<style>
+body {
+  margin: 0;
+  font-family: system-ui, Arial;
+  background: #0f172a;
+  color: white;
+}
+
+#lock {
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.lock-box {
+  background: #020617;
+  padding: 20px;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 360px;
+}
+
+input, button {
+  width: 100%;
+  padding: 12px;
+  margin-top: 10px;
+  border-radius: 8px;
+  border: none;
+  font-size: 16px;
+}
+
+button {
+  background: #2563eb;
+  color: white;
+}
+
+#chat {
+  display: none;
+  height: 100vh;
+  flex-direction: column;
+}
+
+.header {
+  padding: 12px;
+  background: #020617;
+  text-align: center;
+  font-weight: bold;
+}
+
+#messages {
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.msg {
+  max-width: 75%;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 14px;
+  word-wrap: break-word;
+}
+
+.me {
+  background: #2563eb;
+  margin-left: auto;
+  border-bottom-right-radius: 4px;
+}
+
+.other {
+  background: #1e293b;
+  margin-right: auto;
+  border-bottom-left-radius: 4px;
+}
+
+.input-bar {
+  display: flex;
+  padding: 8px;
+  gap: 6px;
+  background: #020617;
+}
+
+.input-bar input {
+  flex: 1;
+}
+</style>
+</head>
+
+<body>
+
+<div id="lock">
+  <div class="lock-box">
+    <h3>Enter Passcode</h3>
+    <input type="password" id="pass" placeholder="Passcode">
+    <button onclick="unlock()">Enter</button>
+  </div>
+</div>
+
+<div id="chat">
+  <div class="header">Private DM</div>
+  <div id="messages"></div>
+
+  <div class="input-bar">
+    <input id="text" placeholder="Message…">
+    <button onclick="send()">➤</button>
+    <button onclick="clearChat()">🗑</button>
+  </div>
+</div>
+
+<script>
+const PASSCODE = "112011";
+const STORE = "private_dm_chat";
+
+function encrypt(t) {
+  return btoa(unescape(encodeURIComponent(t)));
+}
+
+function decrypt(t) {
+  return decodeURIComponent(escape(atob(t)));
+}
+
+function unlock() {
+  const p = document.getElementById("pass").value;
+  if (p === PASSCODE) {
+    document.getElementById("lock").style.display = "none";
+    document.getElementById("chat").style.display = "flex";
+    load();
+  } else {
+    alert("Wrong passcode");
+  }
+}
+
+function send() {
+  const input = document.getElementById("text");
+  if (!input.value) return;
+
+  const data = JSON.parse(localStorage.getItem(STORE) || "[]");
+  data.push({ me: true, text: encrypt(input.value) });
+  localStorage.setItem(STORE, JSON.stringify(data));
+  input.value = "";
+  load();
+}
+
+function load() {
+  const box = document.getElementById("messages");
+  box.innerHTML = "";
+  const data = JSON.parse(localStorage.getItem(STORE) || "[]");
+
+  data.forEach(m => {
+    const div = document.createElement("div");
+    div.className = "msg " + (m.me ? "me" : "other");
+    div.textContent = decrypt(m.text);
+    box.appendChild(div);
+  });
+
+  box.scrollTop = box.scrollHeight;
+}
+
+function clearChat() {
+  localStorage.removeItem(STORE);
+  load();
+}
+</script>
+
+</body>
+</html>
