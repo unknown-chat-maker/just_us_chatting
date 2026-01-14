@@ -1,0 +1,209 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title> </title>
+    <script src="https://unpkg.com/peerjs@1.5.2/dist/peerjs.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    <style>
+        :root {
+            --ig-grad: linear-gradient(45deg, #405de6, #5851db, #833ab4, #c13584, #e1306c, #fd1d1d);
+            --bg: #000;
+            --bubble-them: #262626;
+            --online: #4ade80;
+        }
+
+        * { margin: 0; padding: 0; box-sizing: border-box; font-family: -apple-system, system-ui, sans-serif; -webkit-tap-highlight-color: transparent; }
+        body { background: var(--bg); color: white; height: 100dvh; display: flex; flex-direction: column; overflow: hidden; }
+
+        /* Minimal Lock */
+        #lock { position: fixed; inset: 0; background: #000; z-index: 9999; display: flex; justify-content: center; align-items: center; transition: 0.6s cubic-bezier(0.4, 0, 0.2, 1); }
+        #pin { background: none; border: none; color: white; text-align: center; font-size: 32px; width: 100%; outline: none; letter-spacing: 12px; }
+
+        /* Instagram UI Header with Status */
+        .header { height: 70px; display: flex; align-items: center; padding: 10px 20px; border-bottom: 0.5px solid #222; gap: 12px; }
+        .avatar { width: 44px; height: 44px; border-radius: 50%; background: var(--ig-grad); display: flex; align-items: center; justify-content: center; font-size: 20px; }
+        .user-info { display: flex; flex-direction: column; }
+        .user-id { font-weight: 700; font-size: 15px; }
+        .status { font-size: 12px; color: #8e8e8e; }
+        .status.active { color: var(--online); }
+        .nav-icons { margin-left: auto; display: flex; gap: 20px; }
+
+        /* Chat Window */
+        #chat { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 4px; scroll-behavior: smooth; }
+        .msg { padding: 10px 16px; border-radius: 22px; max-width: 75%; font-size: 15px; line-height: 1.4; animation: pop 0.25s cubic-bezier(0.1, 0.9, 0.2, 1); }
+        @keyframes pop { from { transform: scale(0.9); opacity: 0; } to { transform: scale(1); opacity: 1; } }
+
+        .me { align-self: flex-end; background: var(--ig-grad); border-bottom-right-radius: 4px; }
+        .them { align-self: flex-start; background: var(--bubble-them); border-bottom-left-radius: 4px; }
+
+        /* Input Bar - Stay Open */
+        .footer { padding: 10px 15px 30px; background: #000; }
+        .bar { background: #121212; border-radius: 30px; display: flex; align-items: center; padding: 4px 15px; border: 1px solid #333; }
+        #in { flex: 1; background: none; border: none; color: white; padding: 10px; font-size: 16px; outline: none; }
+        .send-btn { color: #0095f6; font-weight: 700; background: none; border: none; padding: 10px; font-size: 14px; }
+
+        #viewer { display: none; position: fixed; inset: 0; background: #000; z-index: 5000; justify-content: center; align-items: center; }
+        #viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
+    </style>
+</head>
+<body>
+
+    <div id="lock">
+        <input type="password" id="pin" placeholder="••••" maxlength="6">
+    </div>
+
+    <div class="header">
+        <div class="avatar" id="avatar-icon">🐷</div>
+        <div class="user-info">
+            <div class="user-id" id="display-name">...</div>
+            <div class="status" id="status-text">Checking...</div>
+        </div>
+        <div class="nav-icons">
+            <button onclick="exportMedia()" style="background:none; border:none; font-size:20px;">📥</button>
+        </div>
+    </div>
+
+    <div id="chat"></div>
+
+    <div class="footer">
+        <div class="bar">
+            <button onclick="document.getElementById('up').click()" style="background:none; border:none; font-size:20px; margin-right:5px;">📷</button>
+            <input type="file" id="up" hidden onchange="handleFile(this)">
+            <input type="text" id="in" placeholder="Message..." autocomplete="off">
+            <button class="send-btn" onmousedown="event.preventDefault(); sendMsg();">Send</button>
+        </div>
+    </div>
+
+    <div id="viewer" onclick="this.style.display='none'"></div>
+
+    <script>
+        const CODE = "112011";
+        // Swap IDs on the second phone
+        const MY_ID = "pig-2026"; 
+        const PEER_ID = (MY_ID === "pig-2026") ? "rasmalai-2026" : "pig-2026";
+        
+        document.getElementById('display-name').innerText = PEER_ID.split('-')[0];
+        document.getElementById('avatar-icon').innerText = (MY_ID === "pig-2026") ? "🍧" : "🐷";
+
+        let db, peer, conn;
+        const input = document.getElementById('in');
+        const statusEl = document.getElementById('status-text');
+
+        // Secret Browser Database
+        const req = indexedDB.open("Vault", 1);
+        req.onupgradeneeded = e => e.target.result.createObjectStore("msgs", { keyPath: "id", autoIncrement: true });
+        req.onsuccess = e => { db = e.target.result; };
+
+        // Stealth Unlocking
+        document.getElementById('pin').addEventListener('input', (e) => {
+            if(e.target.value === CODE) {
+                document.getElementById('lock').style.transform = 'translateY(-100%)';
+                initPeer();
+                load();
+            }
+        });
+
+        // Online/Offline Tracking Logic
+        function initPeer() {
+            peer = new Peer(MY_ID);
+            
+            peer.on('open', () => {
+                checkOnlineStatus();
+                setInterval(checkOnlineStatus, 5000); // Check every 5s
+            });
+
+            // Listen for incoming connections
+            peer.on('connection', c => {
+                conn = c;
+                updateStatus(true);
+                conn.on('close', () => updateStatus(false));
+            });
+        }
+
+        function checkOnlineStatus() {
+            const tempConn = peer.connect(PEER_ID);
+            tempConn.on('open', () => {
+                updateStatus(true);
+                tempConn.close();
+            });
+            tempConn.on('error', () => updateStatus(false));
+        }
+
+        function updateStatus(isOnline) {
+            if(isOnline) {
+                statusEl.innerText = "Active now";
+                statusEl.classList.add('active');
+            } else {
+                const lastSeen = localStorage.getItem('lastSeen_' + PEER_ID);
+                statusEl.innerText = lastSeen ? `Active ${lastSeen} ago` : "Offline";
+                statusEl.classList.remove('active');
+                // Store current time as last seen when we detect they are gone
+                localStorage.setItem('lastSeen_' + PEER_ID, new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}));
+            }
+        }
+
+        // Chat Logic (Save to Local DB)
+        function sendMsg() {
+            const val = input.value;
+            if(!val) return;
+            save({ type: 'text', data: val, sender: 'me' });
+            input.value = '';
+            input.focus();
+        }
+
+        function handleFile(el) {
+            const reader = new FileReader();
+            reader.onload = e => {
+                save({ type: 'img', data: e.target.result, sender: 'me' });
+                input.focus();
+            };
+            reader.readAsDataURL(el.files[0]);
+        }
+
+        function save(obj) {
+            const tx = db.transaction("msgs", "readwrite");
+            tx.objectStore("msgs").add({ ...obj, time: Date.now() });
+            tx.oncomplete = load;
+        }
+
+        function load() {
+            const chat = document.getElementById('chat');
+            chat.innerHTML = '';
+            db.transaction("msgs").objectStore("msgs").getAll().onsuccess = e => {
+                e.target.result.forEach(m => {
+                    const d = document.createElement('div');
+                    d.className = `msg ${m.sender === 'me' ? 'me' : 'them'}`;
+                    if(m.type === 'text') d.innerText = m.data;
+                    else d.innerHTML = `<img src="${m.data}" style="width:100%; border-radius:18px;" onclick="view('${m.data}')">`;
+                    chat.appendChild(d);
+                });
+                chat.scrollTop = chat.scrollHeight;
+            };
+        }
+
+        function view(s) {
+            const v = document.getElementById('viewer');
+            v.innerHTML = `<img src="${s}">`;
+            v.style.display = 'flex';
+        }
+
+        async function exportMedia() {
+            const zip = new JSZip();
+            db.transaction("msgs").objectStore("msgs").getAll().onsuccess = async e => {
+                for(let m of e.target.result) {
+                    if(m.type === 'img') {
+                        const blob = await (await fetch(m.data)).blob();
+                        zip.file(`pic_${m.time}.jpg`, blob);
+                    }
+                }
+                zip.generateAsync({type:"blob"}).then(c => saveAs(c, "vault_media.zip"));
+            };
+        }
+
+        input.addEventListener('keydown', e => { if(e.key === 'Enter') sendMsg(); });
+    </script>
+</body>
+</html>
