@@ -1,0 +1,281 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no, viewport-fit=cover">
+    <title>Infinity Vault</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <style>
+        :root {
+            --pink-grad: linear-gradient(145deg, #ff2d75 0%, #000000 100%);
+            --sent-grad: linear-gradient(135deg, #ff0055, #000000);
+            --recv-grad: linear-gradient(135deg, #333333, #000000);
+            --bg: #000000;
+            --pink: #ff2d75;
+            --smooth: cubic-bezier(0.19, 1, 0.22, 1);
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
+        body, html { 
+            margin: 0; padding: 0; height: 100%; width: 100%;
+            background: var(--bg); color: white;
+            font-family: -apple-system, system-ui, sans-serif;
+            overflow: hidden;
+        }
+
+        .screen {
+            position: fixed; inset: 0; background: var(--bg); z-index: 2000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            transition: all 0.7s var(--smooth); opacity: 0; transform: scale(1.1); pointer-events: none;
+        }
+        .screen.active { opacity: 1; transform: scale(1); pointer-events: all; }
+
+        .id-btn {
+            width: 280px; padding: 22px; margin: 12px; border-radius: 50px; border: none;
+            background: var(--pink-grad); color: white; font-size: 1.2rem; font-weight: bold;
+            cursor: pointer; box-shadow: 0 10px 25px rgba(255, 45, 117, 0.3);
+        }
+
+        #pass-input {
+            background: transparent; border: none; border-bottom: 2px solid #333;
+            color: var(--pink); font-size: 3rem; text-align: center; width: 220px;
+            letter-spacing: 12px; margin-bottom: 20px;
+        }
+
+        #app-root { display: none; height: 100dvh; width: 100vw; flex-direction: column; }
+        
+        header {
+            height: 60px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between;
+            background: #080808; border-bottom: 1px solid #1a1a1a; flex-shrink: 0;
+        }
+
+        /* --- Search Area --- */
+        .search-container {
+            padding: 8px 15px; background: #000; border-bottom: 1px solid #1a1a1a;
+        }
+        .search-box {
+            background: #111; border-radius: 12px; border: 1px solid #222;
+            padding: 8px 15px; display: flex; align-items: center;
+        }
+        .search-box input {
+            flex: 1; background: transparent; border: none; color: #ff2d75; font-size: 0.85rem; outline: none;
+        }
+
+        .tabs { height: 45px; display: flex; background: #000; border-bottom: 1px solid #1a1a1a; flex-shrink: 0; }
+        .tab-btn { flex: 1; display: flex; align-items: center; justify-content: center; color: #444; font-weight: bold; font-size: 0.8rem; }
+        .tab-btn.active { color: var(--pink); border-bottom: 2px solid var(--pink); }
+
+        #view-msg { flex: 1; display: flex; flex-direction: column; overflow: hidden; position: relative; }
+        #chat-flow { flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 15px; background: radial-gradient(circle at top, #1a050d 0%, #000 100%); }
+
+        .bottom-bar { background: #000; padding: 15px 15px calc(15px + env(safe-area-inset-bottom)); border-top: 1px solid #1a1a1a; flex-shrink: 0; }
+        .input-row { display: flex; align-items: center; gap: 12px; }
+        .input-field { flex: 1; background: #111; border-radius: 25px; padding: 10px 18px; border: 1px solid #222; display: flex; }
+        .input-field input { flex: 1; background: transparent; border: none; color: white; outline: none; font-size: 1rem; }
+        .send-btn { background: none; border: none; color: var(--pink); font-weight: bold; cursor: pointer; }
+
+        .bubble { max-width: 80%; padding: 10px 14px; border-radius: 18px; position: relative; animation: slide 0.3s var(--smooth); }
+        .right { align-self: flex-end; background: var(--sent-grad); border-bottom-right-radius: 4px; }
+        .left { align-self: flex-start; background: var(--recv-grad); border-bottom-left-radius: 4px; color: #ccc; }
+        
+        .msg-meta { font-size: 0.65rem; opacity: 0.5; margin-top: 5px; display: flex; justify-content: space-between; align-items: center; gap: 10px; }
+        .del-btn { color: #ff4d4d; cursor: pointer; font-size: 0.7rem; border: none; background: none; padding: 0; }
+        .deleted-text { font-style: italic; opacity: 0.6; font-size: 0.85rem; }
+
+        #media-viewer { position: fixed; inset: 0; background: #000; z-index: 5000; display: none; align-items: center; justify-content: center; }
+        #media-viewer img { max-width: 100%; max-height: 100%; object-fit: contain; }
+        .close-viewer { position: absolute; top: 40px; left: 20px; font-size: 2rem; color: white; z-index: 5001; cursor: pointer; }
+
+        #view-vlt { display: none; flex: 1; overflow-y: auto; }
+        #vault-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; }
+        #vault-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; }
+
+        @keyframes slide { from { opacity: 0; transform: translateY(10px); } to { opacity: 1; transform: translateY(0); } }
+    </style>
+</head>
+<body>
+
+    <div id="scr-lock" class="screen active">
+        <h2 style="font-weight: 200; letter-spacing: 5px;">WHO AM I</h2>
+        <input type="password" id="pass-input" inputmode="numeric" maxlength="6">
+    </div>
+
+    <div id="scr-id" class="screen">
+        <button class="id-btn" onclick="openVault('Hubby')">HUBBY</button>
+        <button class="id-btn" onclick="openVault('Wifey')">WIFEY</button>
+    </div>
+
+    <div id="app-root">
+        <header>
+            <span id="role-title" style="color: var(--pink); font-weight: bold;">VAULT</span>
+            <button onclick="exportVault()" style="background:none; border:1px solid #333; color:white; padding:5px 12px; border-radius:15px; font-size:0.7rem;">EXPORT ZIP</button>
+        </header>
+
+        <div class="search-container">
+            <div class="search-box">
+                <input type="text" id="search-input" placeholder="Search messages..." oninput="render()">
+            </div>
+        </div>
+
+        <div class="tabs">
+            <div class="tab-btn active" id="t-msg" onclick="switchTab('msg')">MESSAGES</div>
+            <div class="tab-btn" id="t-vlt" onclick="switchTab('vlt')">VAULT</div>
+        </div>
+
+        <div id="view-msg">
+            <div id="chat-flow"></div>
+            <div class="bottom-bar">
+                <div class="input-row">
+                    <label style="cursor:pointer; font-size:1.5rem;">📸<input type="file" id="img-up" hidden accept="image/*"></label>
+                    <div class="input-field"><input type="text" id="msg-input" placeholder="Message..."></div>
+                    <button class="send-btn" onclick="sendMsg()">SEND</button>
+                </div>
+            </div>
+        </div>
+
+        <div id="view-vlt"><div id="vault-grid"></div></div>
+    </div>
+
+    <div id="media-viewer">
+        <span class="close-viewer" onclick="closeMedia()">✕</span>
+        <img id="viewer-img">
+    </div>
+
+    <script>
+        let db, user;
+        const PIN = "112011";
+
+        const req = indexedDB.open("PinkVaultV3", 1);
+        req.onupgradeneeded = (e) => e.target.result.createObjectStore("store", { keyPath: "id", autoIncrement: true });
+        req.onsuccess = (e) => db = e.target.result;
+
+        document.getElementById('pass-input').addEventListener('input', (e) => {
+            if(e.target.value === PIN) {
+                document.getElementById('scr-lock').classList.remove('active');
+                setTimeout(() => {
+                    document.getElementById('scr-lock').style.display = 'none';
+                    document.getElementById('scr-id').style.display = 'flex';
+                    setTimeout(() => document.getElementById('scr-id').classList.add('active'), 50);
+                }, 700);
+            }
+        });
+
+        function openVault(role) {
+            user = role;
+            document.getElementById('role-title').innerText = role.toUpperCase();
+            document.getElementById('scr-id').classList.remove('active');
+            setTimeout(() => {
+                document.getElementById('scr-id').style.display = 'none';
+                document.getElementById('app-root').style.display = 'flex';
+                render();
+            }, 700);
+        }
+
+        function switchTab(t) {
+            const isMsg = t === 'msg';
+            document.getElementById('view-msg').style.display = isMsg ? 'flex' : 'none';
+            document.getElementById('view-vlt').style.display = isMsg ? 'none' : 'block';
+            document.getElementById('t-msg').classList.toggle('active', isMsg);
+            document.getElementById('t-vlt').classList.toggle('active', !isMsg);
+        }
+
+        function sendMsg() {
+            const input = document.getElementById('msg-input');
+            if(!input.value.trim()) return;
+            commit({ type: 'text', val: input.value, sender: user, deleted: false });
+            input.value = "";
+        }
+
+        document.getElementById('img-up').addEventListener('change', (e) => {
+            const r = new FileReader();
+            r.onload = () => commit({ type: 'img', val: r.result, sender: user, deleted: false });
+            r.readAsDataURL(e.target.files[0]);
+        });
+
+        function commit(obj) {
+            const enc = CryptoJS.AES.encrypt(obj.val, PIN).toString();
+            const tx = db.transaction("store", "readwrite");
+            tx.objectStore("store").add({ ...obj, val: enc, ts: new Date().toLocaleTimeString([], {hour: '2-digit', minute:'2-digit'}) });
+            tx.oncomplete = render;
+        }
+
+        function deleteMsg(id) {
+            const tx = db.transaction("store", "readwrite");
+            const store = tx.objectStore("store");
+            store.get(id).onsuccess = (e) => {
+                const data = e.target.result;
+                data.deleted = true;
+                data.val = CryptoJS.AES.encrypt("This message is deleted", PIN).toString();
+                store.put(data);
+            };
+            tx.oncomplete = render;
+        }
+
+        function render() {
+            const flow = document.getElementById('chat-flow');
+            const grid = document.getElementById('vault-grid');
+            const searchQuery = document.getElementById('search-input').value.toLowerCase();
+            flow.innerHTML = ""; grid.innerHTML = "";
+
+            db.transaction("store").objectStore("store").openCursor().onsuccess = (e) => {
+                const cursor = e.target.result;
+                if(cursor) {
+                    const item = cursor.value;
+                    const dec = CryptoJS.AES.decrypt(item.val, PIN).toString(CryptoJS.enc.Utf8);
+                    
+                    // Filter Logic
+                    if (searchQuery && !dec.toLowerCase().includes(searchQuery)) {
+                        cursor.continue();
+                        return;
+                    }
+
+                    const div = document.createElement('div');
+                    div.className = `bubble ${item.sender === user ? 'right' : 'left'}`;
+                    
+                    if(item.deleted) {
+                        div.innerHTML = `<span class="deleted-text">This message is deleted</span><div class="msg-meta"><span>${item.ts}</span></div>`;
+                    } else if(item.type === 'text') {
+                        div.innerHTML = `<div>${dec}</div><div class="msg-meta"><span>${item.ts}</span><button class="del-btn" onclick="deleteMsg(${item.id})">Delete</button></div>`;
+                    } else {
+                        div.innerHTML = `<img src="${dec}" style="width:100%; border-radius:12px;" onclick="viewMedia('${dec}')"><div class="msg-meta"><span>${item.ts}</span><button class="del-btn" onclick="deleteMsg(${item.id})">Delete</button></div>`;
+                        const vImg = document.createElement('img');
+                        vImg.src = dec; vImg.onclick = () => viewMedia(dec);
+                        grid.appendChild(vImg);
+                    }
+                    flow.appendChild(div);
+                    cursor.continue();
+                }
+                if(!searchQuery) flow.scrollTop = flow.scrollHeight;
+            };
+        }
+
+        function viewMedia(src) {
+            document.getElementById('viewer-img').src = src;
+            document.getElementById('media-viewer').style.display = 'flex';
+            window.history.pushState({viewing: true}, "");
+        }
+
+        function closeMedia() { document.getElementById('media-viewer').style.display = 'none'; }
+        window.addEventListener('popstate', closeMedia);
+
+        async function exportVault() {
+            const zip = new JSZip();
+            db.transaction("store").objectStore("store").openCursor().onsuccess = (e) => {
+                const cursor = e.target.result;
+                if(cursor) {
+                    if(cursor.value.type === 'img' && !cursor.value.deleted) {
+                        const dec = CryptoJS.AES.decrypt(cursor.value.val, PIN).toString(CryptoJS.enc.Utf8);
+                        zip.file(`vault_${Date.now()}.png`, dec.split(',')[1], {base64: true});
+                    }
+                    cursor.continue();
+                } else {
+                    zip.generateAsync({type:"blob"}).then(b => saveAs(b, "Vault.zip"));
+                }
+            };
+        }
+    </script>
+</body>
+</html>
