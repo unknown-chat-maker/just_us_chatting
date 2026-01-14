@@ -1,0 +1,291 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+    <title>Private Vault</title>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/crypto-js/4.1.1/crypto-js.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/jszip/3.10.1/jszip.min.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/FileSaver.js/2.0.5/FileSaver.min.js"></script>
+    
+    <style>
+        :root {
+            --pink-grad: linear-gradient(145deg, #ff2d75 0%, #3a0018 100%);
+            --sent-grad: linear-gradient(135deg, #ff0055, #800033);
+            --recv-grad: linear-gradient(135deg, #2a2a2a, #111111);
+            --bg: #000000;
+            --pink: #ff2d75;
+            --smooth: cubic-bezier(0.19, 1, 0.22, 1);
+        }
+
+        * { box-sizing: border-box; -webkit-tap-highlight-color: transparent; outline: none; }
+        body, html { 
+            margin: 0; padding: 0; height: 100vh; width: 100vw;
+            background: var(--bg); color: white;
+            font-family: -apple-system, system-ui, sans-serif;
+            overflow: hidden;
+        }
+
+        /* --- Liquid Login Animations --- */
+        .screen {
+            position: fixed; inset: 0; background: var(--bg); z-index: 2000;
+            display: flex; flex-direction: column; align-items: center; justify-content: center;
+            transition: all 0.8s var(--smooth);
+            opacity: 0; transform: scale(1.2) translateY(50px); pointer-events: none;
+        }
+        .screen.active { opacity: 1; transform: scale(1) translateY(0); pointer-events: all; }
+
+        .id-btn {
+            width: 280px; padding: 22px; margin: 12px; border-radius: 50px; border: none;
+            background: var(--pink-grad); color: white; font-size: 1.2rem; font-weight: bold;
+            cursor: pointer; transition: 0.4s var(--smooth);
+            box-shadow: 0 10px 20px rgba(255, 45, 117, 0.2);
+        }
+        .id-btn:active { transform: scale(0.9); opacity: 0.8; }
+
+        #pass-input {
+            background: transparent; border: none; border-bottom: 2px solid #333;
+            color: var(--pink); font-size: 3rem; text-align: center; width: 220px;
+            letter-spacing: 12px; margin-bottom: 20px;
+        }
+
+        /* --- App Layout --- */
+        #app-root {
+            display: none; height: 100vh; width: 100vw;
+            flex-direction: column; position: relative;
+        }
+
+        header {
+            height: 60px; padding: 0 20px; display: flex; align-items: center; justify-content: space-between;
+            background: #080808; border-bottom: 1px solid #1a1a1a; z-index: 10;
+        }
+
+        .tabs {
+            height: 45px; display: flex; background: #000; border-bottom: 1px solid #1a1a1a;
+        }
+        .tab-btn {
+            flex: 1; display: flex; align-items: center; justify-content: center;
+            color: #444; font-weight: bold; font-size: 0.75rem; letter-spacing: 1px;
+        }
+        .tab-btn.active { color: var(--pink); border-bottom: 2px solid var(--pink); }
+
+        /* --- Scroll Area --- */
+        .content-body { flex: 1; position: relative; overflow: hidden; }
+        .view { position: absolute; inset: 0; display: none; flex-direction: column; }
+        .view.active { display: flex; }
+
+        #chat-flow {
+            flex: 1; overflow-y: auto; padding: 15px; display: flex; flex-direction: column; gap: 10px;
+            background: radial-gradient(circle at center, #1a050d 0%, #000 100%);
+            padding-bottom: 100px; /* Space for fixed input */
+        }
+
+        /* --- The Fixed Bottom Panel --- */
+        .bottom-panel {
+            position: absolute; bottom: 0; left: 0; right: 0;
+            background: rgba(0,0,0,0.95); backdrop-filter: blur(10px);
+            padding: 15px; border-top: 1px solid #1a1a1a;
+            display: flex; flex-direction: column; z-index: 100;
+        }
+
+        #typing-hint { font-size: 0.7rem; color: var(--pink); height: 15px; margin-bottom: 5px; visibility: hidden; }
+        .input-row { display: flex; align-items: center; gap: 12px; }
+        .msg-box {
+            flex: 1; background: #121212; border-radius: 25px; padding: 10px 18px;
+            border: 1px solid #222; display: flex; align-items: center;
+        }
+        .msg-box input { flex: 1; background: transparent; border: none; color: white; outline: none; }
+        .send-btn { background: none; border: none; color: var(--pink); font-weight: bold; font-size: 0.9rem; }
+
+        /* --- Vault --- */
+        #vault-grid { display: grid; grid-template-columns: repeat(3, 1fr); gap: 2px; overflow-y: auto; padding: 2px; }
+        #vault-grid img { width: 100%; aspect-ratio: 1; object-fit: cover; }
+
+        /* --- Bubbles --- */
+        .bubble { max-width: 80%; padding: 12px 16px; border-radius: 20px; font-size: 0.9rem; animation: pop 0.3s var(--smooth); }
+        .right { align-self: flex-end; background: var(--sent-grad); border-bottom-right-radius: 4px; }
+        .left { align-self: flex-start; background: var(--recv-grad); border-bottom-left-radius: 4px; color: #ccc; }
+
+        @keyframes pop { from { opacity: 0; transform: scale(0.95) translateY(10px); } to { opacity: 1; transform: scale(1) translateY(0); } }
+
+        #full-viewer {
+            display: none; position: fixed; inset: 0; background: black; z-index: 5000;
+            justify-content: center; align-items: center;
+        }
+        #full-viewer img { max-width: 100%; max-height: 100%; }
+    </style>
+</head>
+<body>
+
+    <div id="scr-lock" class="screen active">
+        <h2 style="font-weight: 200; letter-spacing: 5px;">WHO AM I</h2>
+        <input type="password" id="pass-input" inputmode="numeric" maxlength="6">
+    </div>
+
+    <div id="scr-id" class="screen">
+        <button class="id-btn" onclick="initApp('Hubby')">HUBBY</button>
+        <button class="id-btn" onclick="initApp('Wifey')">WIFEY</button>
+    </div>
+
+    <div id="app-root">
+        <header>
+            <span id="role-tag" style="color: var(--pink); font-weight: bold; letter-spacing: 1px;">VAULT</span>
+            <button onclick="doExport()" style="background:none; border:1px solid #333; color:white; padding:5px 12px; border-radius:15px; font-size:0.7rem;">EXPORT ZIP</button>
+        </header>
+
+        <div class="tabs">
+            <div class="tab-btn active" id="t-chat" onclick="tab('chat')">MESSAGES</div>
+            <div class="tab-btn" id="t-vault" onclick="tab('vault')">VAULT</div>
+        </div>
+
+        <div class="content-body">
+            <div id="view-chat" class="view active">
+                <div id="chat-flow"></div>
+                <div class="bottom-panel">
+                    <div id="typing-hint">Partner is writing...</div>
+                    <div class="input-row">
+                        <label style="cursor:pointer; font-size:1.5rem;">📸<input type="file" id="up-file" hidden accept="image/*"></label>
+                        <div class="msg-box"><input type="text" id="msg-in" placeholder="Write a secret..."></div>
+                        <button onclick="pushMsg()" class="send-btn">SEND</button>
+                    </div>
+                </div>
+            </div>
+
+            <div id="view-vault" class="view">
+                <div id="vault-grid"></div>
+            </div>
+        </div>
+    </div>
+
+    <div id="full-viewer" onclick="closeImg()">
+        <img id="full-img">
+    </div>
+
+    <script>
+        let db, user;
+        const PIN = "112011";
+
+        const req = indexedDB.open("PinkVaultFinal", 1);
+        req.onupgradeneeded = (e) => e.target.result.createObjectStore("vault", { autoIncrement: true });
+        req.onsuccess = (e) => db = e.target.result;
+
+        document.getElementById('pass-input').addEventListener('input', (e) => {
+            if(e.target.value === PIN) {
+                transition('scr-lock', 'scr-id');
+            }
+        });
+
+        function transition(h, s) {
+            document.getElementById(h).classList.remove('active');
+            setTimeout(() => {
+                document.getElementById(h).style.display = 'none';
+                const next = document.getElementById(s);
+                next.style.display = 'flex';
+                setTimeout(() => next.classList.add('active'), 50);
+            }, 800);
+        }
+
+        function initApp(role) {
+            user = role;
+            document.getElementById('role-tag').innerText = role.toUpperCase();
+            transition('scr-id', 'app-root');
+            setTimeout(load, 1000);
+        }
+
+        function tab(t) {
+            document.querySelectorAll('.view').forEach(v => v.classList.remove('active'));
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            document.getElementById(`view-${t}`).classList.add('active');
+            document.getElementById(`t-${t}`).classList.add('active');
+        }
+
+        function pushMsg() {
+            const i = document.getElementById('msg-in');
+            if(!i.value.trim()) return;
+            save({ type: 'text', val: i.value, user: user });
+            i.value = "";
+        }
+
+        document.getElementById('up-file').addEventListener('change', (e) => {
+            const reader = new FileReader();
+            reader.onload = () => save({ type: 'img', val: reader.result, user: user });
+            reader.readAsDataURL(e.target.files[0]);
+        });
+
+        function save(obj) {
+            const enc = CryptoJS.AES.encrypt(obj.val, PIN).toString();
+            const tx = db.transaction("vault", "readwrite");
+            tx.objectStore("vault").add({ type: obj.type, body: enc, sender: obj.user, ts: Date.now() });
+            tx.oncomplete = load;
+        }
+
+        function load() {
+            const flow = document.getElementById('chat-flow');
+            const grid = document.getElementById('vault-grid');
+            flow.innerHTML = ""; grid.innerHTML = "";
+
+            db.transaction("vault").objectStore("vault").openCursor().onsuccess = (e) => {
+                const cursor = e.target.result;
+                if(cursor) {
+                    const item = cursor.value;
+                    const dec = CryptoJS.AES.decrypt(item.body, PIN).toString(CryptoJS.enc.Utf8);
+                    
+                    const b = document.createElement('div');
+                    b.className = `bubble ${item.sender === user ? 'right' : 'left'}`;
+                    
+                    if(item.type === 'text') {
+                        b.innerText = dec;
+                        flow.appendChild(b);
+                    } else {
+                        const img = document.createElement('img');
+                        img.src = dec; img.style.width="100%"; img.style.borderRadius="12px";
+                        img.onclick = () => openImg(dec);
+                        b.style.padding = "4px";
+                        b.appendChild(img);
+                        flow.appendChild(b);
+
+                        const vImg = img.cloneNode();
+                        vImg.onclick = () => openImg(dec);
+                        grid.appendChild(vImg);
+                    }
+                    cursor.continue();
+                }
+                flow.scrollTop = flow.scrollHeight;
+            };
+        }
+
+        function openImg(s) {
+            document.getElementById('full-img').src = s;
+            document.getElementById('full-viewer').style.display = 'flex';
+            window.history.pushState({view:true}, "");
+        }
+        function closeImg() { document.getElementById('full-viewer').style.display = 'none'; }
+        window.addEventListener('popstate', closeImg);
+
+        document.getElementById('msg-in').addEventListener('input', () => {
+            const hint = document.getElementById('typing-hint');
+            hint.innerText = (user === 'Hubby' ? 'Wifey' : 'Hubby') + " is writing...";
+            hint.style.visibility = 'visible';
+            clearTimeout(window.tOut);
+            window.tOut = setTimeout(() => hint.style.visibility = 'hidden', 2000);
+        });
+
+        async function doExport() {
+            const zip = new JSZip();
+            const tx = db.transaction("vault", "readonly");
+            tx.objectStore("vault").openCursor().onsuccess = (e) => {
+                const cursor = e.target.result;
+                if(cursor) {
+                    if(cursor.value.type === 'img') {
+                        const dec = CryptoJS.AES.decrypt(cursor.value.body, PIN).toString(CryptoJS.enc.Utf8);
+                        zip.file(`vault_${cursor.value.ts}.png`, dec.split(',')[1], {base64: true});
+                    }
+                    cursor.continue();
+                } else {
+                    zip.generateAsync({type:"blob"}).then(b => saveAs(b, "Archive.zip"));
+                }
+            };
+        }
+    </script>
+</body>
+</html>
