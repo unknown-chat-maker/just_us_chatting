@@ -1,0 +1,162 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>Private Chat</title>
+
+<style>
+body {
+  margin: 0;
+  font-family: system-ui, Arial;
+  background: #0f172a;
+  color: white;
+}
+
+#lock, #chat {
+  height: 100vh;
+  display: flex;
+  justify-content: center;
+  align-items: center;
+}
+
+.box {
+  background: #020617;
+  padding: 20px;
+  border-radius: 12px;
+  width: 90%;
+  max-width: 360px;
+}
+
+input, button {
+  width: 100%;
+  padding: 12px;
+  margin-top: 10px;
+  border-radius: 8px;
+  border: none;
+  font-size: 16px;
+}
+
+button {
+  background: #2563eb;
+  color: white;
+}
+
+#chat {
+  display: none;
+  flex-direction: column;
+}
+
+.header {
+  padding: 12px;
+  background: #020617;
+  text-align: center;
+  font-weight: bold;
+}
+
+#messages {
+  flex: 1;
+  padding: 10px;
+  overflow-y: auto;
+}
+
+.msg {
+  max-width: 75%;
+  padding: 8px 12px;
+  margin-bottom: 8px;
+  border-radius: 14px;
+  word-wrap: break-word;
+}
+
+.me {
+  background: #2563eb;
+  margin-left: auto;
+}
+
+.other {
+  background: #1e293b;
+  margin-right: auto;
+}
+
+.input-bar {
+  display: flex;
+  gap: 6px;
+  padding: 8px;
+  background: #020617;
+}
+
+.input-bar input {
+  flex: 1;
+}
+</style>
+</head>
+
+<body>
+
+<div id="lock">
+  <div class="box">
+    <h3>Enter Passcode</h3>
+    <input type="password" id="pass" placeholder="Passcode">
+    <button onclick="unlock()">Enter</button>
+  </div>
+</div>
+
+<div id="chat">
+  <div class="header">Private DM</div>
+  <div id="messages"></div>
+  <div class="input-bar">
+    <input id="text" placeholder="Message…">
+    <button onclick="send()">➤</button>
+    <button onclick="clearChat()">🗑</button>
+  </div>
+</div>
+
+<script>
+const PASSCODE = "112011";
+const STORE = "local_chat_v1";
+
+function unlock() {
+  if (document.getElementById("pass").value === PASSCODE) {
+    document.getElementById("lock").style.display = "none";
+    document.getElementById("chat").style.display = "flex";
+    load();
+  } else {
+    alert("Wrong passcode");
+  }
+}
+
+function send() {
+  const input = document.getElementById("text");
+  if (!input.value.trim()) return;
+
+  const data = JSON.parse(localStorage.getItem(STORE) || "[]");
+  data.push({ text: input.value });
+  localStorage.setItem(STORE, JSON.stringify(data));
+
+  input.value = "";
+  load();
+}
+
+function load() {
+  const box = document.getElementById("messages");
+  box.innerHTML = "";
+  const data = JSON.parse(localStorage.getItem(STORE) || "[]");
+
+  data.forEach(msg => {
+    const div = document.createElement("div");
+    div.className = "msg me";
+    div.textContent = msg.text;
+    box.appendChild(div);
+  });
+
+  box.scrollTop = box.scrollHeight;
+}
+
+function clearChat() {
+  localStorage.removeItem(STORE);
+  load();
+}
+</script>
+
+</body>
+</html>
